@@ -117,7 +117,8 @@ def wrap_str(y: int, x: int, s: str, spaces: int, panel=curses.initscr()):
         if x + len(curr_s) < max_x:
             panel.addstr(y + y_inc, x, curr_s)
             return y_inc + 1
-        offset = max_x - x - 1 - 1
+        # -1 because counting from zero, -1 because hyphen, -1 because border
+        offset = max_x - x - 1 - 1 - 1
         panel.addstr(y + y_inc, x, curr_s[:offset] + "-")
         curr_s = curr_s[offset:]
         if y_inc == 0:
@@ -127,6 +128,7 @@ def wrap_str(y: int, x: int, s: str, spaces: int, panel=curses.initscr()):
 
 def redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
     panel.clear()
+    panel.box("|", "-")
     panel.addstr(player["name"])
     if player["info"] is None:
         panel.addstr(1, spaces, "not found")
@@ -199,6 +201,7 @@ def main(
         for i in range(len(players))
     ]
     for panel, player in zip(panels, players):
+        panel.box("|", "-")
         panel.addstr(player["name"])
         if player["name"] in skipped_names:
             panel.addstr(1, spaces, "skipped")
