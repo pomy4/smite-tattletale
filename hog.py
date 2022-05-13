@@ -1,10 +1,19 @@
 import curses
 import curses.ascii
+import datetime
+import json
+import sys
+from pathlib import Path
 from typing import *
+
+import PIL.Image
+import PIL.ImageOps
+import pytesseract
 
 from api import Api
 
 skipped_names = ["Siemka4", "kapitán"]
+history_folder = Path("node_modules")
 api = Api()
 
 
@@ -32,7 +41,7 @@ class PlayerInfo(TypedDict):
     matches: List[MatchInfo]
 
 
-class Player(TypedDict):
+class Player(TypedDict, total=False):
     name: str
     info: Optional[PlayerInfo]
 
@@ -84,29 +93,6 @@ def call_hirez_api(player: str) -> PlayerInfo | None:
     ]
 
     return res
-    # return {
-    #     "mmr": "1500",
-    #     "hours": "30",
-    #     "created": "yesterday",
-    #     "status": "x" * 120,
-    #     "gods": [
-    #         {
-    #             "name": "He Bo",
-    #             "matches": "10",
-    #             "wr": "60%",
-    #             "last": "today",
-    #         },
-    #     ],
-    #     "matches": [
-    #         {
-    #             "outcome": "win",
-    #             "length": "30m",
-    #             "role": "mid",
-    #             "god": "He Bo",
-    #             "kda": "3/1/3",
-    #         },
-    #     ],
-    # }
 
 
 def wrap_str(y: int, x: int, s: str, spaces: int, panel=curses.initscr()):
@@ -216,7 +202,7 @@ def main(
     for panel, player in zip(panels, players):
         if player["name"] in skipped_names:
             continue
-        if player["info"] is None:
+        if "info" not in player:
             player["info"] = call_hirez_api(player["name"])
         redraw_panel(spaces, player, panel)
 
@@ -307,83 +293,93 @@ def main(
 
         # Maybe need to refresh screen here?
 
-        # if x == "\x1B":
-        #     return
-        # if x == curses.KEY_BACKSPACE:
-        #     screen.addstr("BACK")
-        # if x == '\n':
-        # screen.addstr(str(x))
-        # screen.addstr(x[1])
-    # if unicode add at cursor
-    # if backspace delete at cursor
-    # if arrow key move cursor around
-    # if escape quit (return)
-    # enter - refresh hirez api based on row
 
-    # panel_cnt = len(names)
-    # while True:
-    #     panel_width = int(total_width / panel_cnt)
-    #     panel_height = int(total_height / panel_cnt)
-    #     panels = [
-    #         curses.newwin(
-    #             panel_height,  # nlines
-    #             panel_width,  # ncols
-    #             0,  # begin_y
-    #             i * panel_width,  # begin_x
-    #         )
-    #         for i in range(panel_cnt)
-    #     ]
-    #     for i, panel in enumerate(panels, 1):
-    #         panel.addstr(str(i) * 120)
-    #         panel.noutrefresh()
-    #     curses.doupdate()
-    #
-    #     got_input = False
-    #     while not got_input:
-    #         got_input = True
-    #         match screen.getch():
-    #             case curses.KEY_UP:
-    #                 panel_cnt += 1
-    #             case curses.KEY_DOWN:
-    #                 panel_cnt = max(1, panel_cnt - 1)
-    #             case _:
-    #                 got_input = False
-
-    # main_window.addstr(0, 0, str())
-    # main_window.addstr(1, 0, str(curses.COLS))
-    # main_window.addstr(2, 0, "x" * 230 + "y")
-    #
-    # main_window.refresh()
-    # while True:
-    #     main_window.getkey()
+def take_screenshot() -> PIL.Image.Image:
+    raise NotImplementedError
 
 
-# if no input, take a screenshot and OCR it
-# if input is a single filename, OCR it
-# otherwise all inputs are playernames
+def get_players_from_history(desired_i: int) -> List[Player]:
+    history = sorted(history_folder.iterdir(), reverse=True)
+    fp = next(x for i, x in enumerate(history, 1) if i == desired_i)
+    return get_players_from_file(fp)
+
+
+def get_image_from_file(fp: str | Path) -> PIL.Image.Image | None:
+    try:
+        return PIL.Image.open(fp)
+    except PIL.UnidentifiedImageError:
+        return None
+
+
+def get_players_from_file(fp: str | Path) -> List[Player]:
+    with open(fp, encoding="utf8") as f:
+        return json.load(f)
+
+
+def get_names_from_screenshot(img: PIL.Image.Image) -> List[str]:
+    h = 33
+    l = 95
+    w = 320
+
+    inc = 140
+    first_l = 182
+    second_l = first_l + inc
+    third_l = second_l + inc
+    fourth_l = third_l + inc
+    fifth_l = fourth_l + inc
+    lefts = [first_l, second_l, third_l, fourth_l, fifth_l]
+
+    def B(top, height, left, width):
+        right = 1920 - left - width
+        bottom = 1080 - top - height
+        return left, top, right, bottom
+
+    def magic(x: PIL.Image.Image):
+        return pytesseract.image_to_string(x).strip()
+
+    names = []
+    for left in lefts:
+        x = PIL.ImageOps.crop(img, cast(int, B(left, h, l, w)))
+        names.append(magic(x))
+    return names
+
+
+def main_outer(screen=curses.initscr()):
+    img = names = players = None
+    save_to_history = False
+    if len(sys.argv) == 1:
+        img = take_screenshot()
+        save_to_history = True
+    elif len(sys.argv) == 2:
+        arg = sys.argv[1]
+        if arg.isdigit():
+            players = get_players_from_history(int(arg))
+        elif img := get_image_from_file(arg):
+            pass
+        elif players := get_players_from_file(arg):
+            pass
+        else:
+            names = [arg]
+    else:
+        names = sys.argv[1:]
+
+    if players is None:
+        if names is None:
+            if img is None:
+                assert False
+            names = get_names_from_screenshot(img)
+        players = [{"name": name} for name in names]
+
+    now = datetime.datetime.now().isoformat()
+    now = now.replace(":", "꞉")  # https://stackoverflow.com/a/25477235
+    try:
+        main(players, screen)
+    except KeyboardInterrupt:
+        pass
+    if save_to_history:
+        with open(f"node_modules/{now}.json", "w") as f:
+            json.dump(players, f)
+
 
 if __name__ == "__main__":
-    names_from_input = [
-        {
-            "name": "Siemka4",
-            "info": None,
-        },
-        {
-            "name": "Jangaru",
-            "info": None,
-        },
-        {
-            "name": "sfdgsfdghsf",
-            "info": None,
-        },
-        {
-            "name": "sfdgsfdghsf",
-            "info": None,
-        },
-        {
-            "name": "sfdgsfdghsf",
-            "info": None,
-        },
-    ]
-
-    curses.wrapper(lambda x: main(names_from_input, x))
+    curses.wrapper(main_outer)

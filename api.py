@@ -1,9 +1,14 @@
 import datetime
-import os
 import hashlib
+import os
 import time
 
 import requests
+import urllib3.exceptions
+
+requests.packages.urllib3.disable_warnings(
+    category=urllib3.exceptions.InsecureRequestWarning
+)
 
 
 class Api:
@@ -50,7 +55,7 @@ class Api:
         )
         for arg in args:
             url += f"/{arg}"
-        return requests.get(url)
+        return requests.get(url, verify=False)  # TODO parameter (in __init__?)
 
     def create_session(self):
         self.session = self._call_method("createsession").json()["session_id"]
