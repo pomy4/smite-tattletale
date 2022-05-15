@@ -19,7 +19,7 @@ api = Api()
 
 class GodInfo(TypedDict):
     name: str
-    matches: str
+    matches: str  # noqa
     wr: str
     last: str
 
@@ -38,7 +38,7 @@ class PlayerInfo(TypedDict):
     created: str
     status: str
     gods: List[GodInfo]
-    matches: List[MatchInfo]
+    matches: List[MatchInfo]  # noqa
 
 
 class Player(TypedDict, total=False):
@@ -55,12 +55,12 @@ def call_hirez_api(player: str) -> PlayerInfo | None:
         return None
     x = getplayer_json[0]
 
-    res = {}
-    res["name"] = player
-    res["mmr"] = f"{x['Rank_Stat_Conquest']:.0f}"
-    res["hours"] = str(x["HoursPlayed"])
-    res["created"] = str(x["Created_Datetime"])
-    res["status"] = str(x["Personal_Status_Message"])
+    res: PlayerInfo = {
+        "mmr": f"{x['Rank_Stat_Conquest']:.0f}",
+        "hours": str(x["HoursPlayed"]),
+        "created": str(x["Created_Datetime"]),
+        "status": str(x["Personal_Status_Message"]),
+    }
 
     getqueuestats_resp = api.call_method("getqueuestats", player, "451")
     getqueuestats_resp.raise_for_status()
@@ -316,30 +316,32 @@ def get_players_from_file(fp: str | Path) -> List[Player]:
         return json.load(f)
 
 
+def b(top, height, left, width):
+    right = 1920 - left - width
+    bottom = 1080 - top - height
+    return left, top, right, bottom
+
+
+def magic(img: PIL.Image.Image):
+    return pytesseract.image_to_string(img).strip()
+
+
 def get_names_from_screenshot(img: PIL.Image.Image) -> List[str]:
-    h = 33
-    l = 95
-    w = 320
+    height = 33
+    left = 95
+    width = 320
 
     inc = 140
-    first_l = 182
-    second_l = first_l + inc
-    third_l = second_l + inc
-    fourth_l = third_l + inc
-    fifth_l = fourth_l + inc
-    lefts = [first_l, second_l, third_l, fourth_l, fifth_l]
-
-    def B(top, height, left, width):
-        right = 1920 - left - width
-        bottom = 1080 - top - height
-        return left, top, right, bottom
-
-    def magic(x: PIL.Image.Image):
-        return pytesseract.image_to_string(x).strip()
+    first_top = 182
+    second_top = first_top + inc
+    third_top = second_top + inc
+    fourth_top = third_top + inc
+    fifth_top = fourth_top + inc
+    tops = [first_top, second_top, third_top, fourth_top, fifth_top]
 
     names = []
-    for left in lefts:
-        x = PIL.ImageOps.crop(img, cast(int, B(left, h, l, w)))
+    for top in tops:
+        x = PIL.ImageOps.crop(img, cast(int, b(top, height, left, width)))
         names.append(magic(x))
     return names
 
@@ -378,7 +380,7 @@ def main_outer(screen=curses.initscr()):
         pass
     if save_to_history:
         with open(f"node_modules/{now}.json", "w") as f:
-            json.dump(players, f)
+            json.dump(players, f, indent=2, ensure_ascii=False)
 
 
 if __name__ == "__main__":
