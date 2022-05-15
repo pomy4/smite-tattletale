@@ -2,9 +2,10 @@ import curses
 import curses.ascii
 import datetime
 import json
+import subprocess
 import sys
+import typing
 from pathlib import Path
-from typing import *
 
 import PIL.Image
 import PIL.ImageOps
@@ -12,19 +13,21 @@ import pytesseract
 
 from api import Api
 
-skipped_names = ["Siemka4", "kapitán"]
+skipped_names = []  # ["Siemka4", "Kapitán"]
 history_folder = Path("node_modules")
+debug_folder = Path("debug")
+assert history_folder.is_dir() and debug_folder.is_dir()
 api = Api()
 
 
-class GodInfo(TypedDict):
+class GodInfo(typing.TypedDict):
     name: str
     matches: str  # noqa
-    wr: str
+    wins: str
     last: str
 
 
-class MatchInfo(TypedDict):
+class MatchInfo(typing.TypedDict):
     outcome: str
     length: str
     role: str
@@ -32,46 +35,61 @@ class MatchInfo(TypedDict):
     kda: str
 
 
-class PlayerInfo(TypedDict):
-    mmr: str
+class PlayerInfo(typing.TypedDict):
+    level: str
     hours: str
     created: str
     status: str
-    gods: List[GodInfo]
-    matches: List[MatchInfo]  # noqa
+    alt_name: str
+    mmr: str
+    matches: str  # noqa
+    last: str
+    gods: list[GodInfo]
+    recent_matches: list[MatchInfo]
 
 
-class Player(TypedDict, total=False):
+class Player(typing.TypedDict, total=False):
     name: str
-    info: Optional[PlayerInfo]
+    info: typing.Optional[PlayerInfo]
+
+
+def make_date_sensible(date: str) -> str:
+    x = date.split("/")
+    return f"{x[1]}/{x[0]}/{x[2]}" if len(x) == 3 else date
 
 
 def call_hirez_api(player: str) -> PlayerInfo | None:
     getplayer_resp = api.call_method("getplayer", player)
-    getplayer_resp.raise_for_status()
+    if not getplayer_resp.ok:
+        return None
 
     getplayer_json = getplayer_resp.json()
     if not getplayer_json:
         return None
     x = getplayer_json[0]
 
+    # For private players, integer values return zero and string values null.
     res: PlayerInfo = {
-        "mmr": f"{x['Rank_Stat_Conquest']:.0f}",
+        "level": str(x["Level"]),
         "hours": str(x["HoursPlayed"]),
-        "created": str(x["Created_Datetime"]),
+        "created": make_date_sensible(str(x["Created_Datetime"])),
         "status": str(x["Personal_Status_Message"]),
+        "alt_name": str(x["Name"]),
+        "mmr": f"{x['Rank_Stat_Conquest']:.0f}",
     }
 
     getqueuestats_resp = api.call_method("getqueuestats", player, "451")
     getqueuestats_resp.raise_for_status()
 
     getqueuestats_json = getqueuestats_resp.json()
+    matches = sum(x["Matches"] for x in getqueuestats_json)
+    res["matches"] = str(matches)
     res["gods"] = [
         {
             "name": x["God"],
-            "matches": str(x["Matches"]),
-            "wr": f"{x['Wins'] / x['Matches']:.0%}",
-            "last": x["LastPlayed"],
+            "matches": f"{x['Matches']} ({x['Matches'] / matches:.0%})",
+            "wins": f"{x['Wins']} ({x['Wins'] / x['Matches']:.0%})",
+            "last": make_date_sensible(x["LastPlayed"]),
         }
         for x in getqueuestats_json[:3]
     ]
@@ -81,7 +99,7 @@ def call_hirez_api(player: str) -> PlayerInfo | None:
 
     xx = getmatchhistory_resp.json()
     xx = [x for x in xx if x["Match_Queue_Id"] == 451]
-    res["matches"] = [
+    res["recent_matches"] = [
         {
             "outcome": x["Win_Status"],
             "length": f"{x['Minutes']}m",
@@ -91,6 +109,7 @@ def call_hirez_api(player: str) -> PlayerInfo | None:
         }
         for x in xx[:3]
     ]
+    res["last"] = make_date_sensible(xx[0]["Match_Time"]) if xx else "None"
 
     return res
 
@@ -121,44 +140,66 @@ def redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
         panel.refresh()
         return
     row = 1
-    panel.addstr(row, spaces, "MMR: " + player["info"]["mmr"])
+    indent = 1
+    panel.addstr(row, indent * spaces, "Level: " + player["info"]["level"])
     row += 1
-    panel.addstr(row, spaces, "Hours played: " + player["info"]["hours"])
+    panel.addstr(row, indent * spaces, "Hours: " + player["info"]["hours"])
     row += 1
-    panel.addstr(row, spaces, "Created: " + player["info"]["created"])
+    panel.addstr(row, indent * spaces, "Created: " + player["info"]["created"])
     row += 1
-    row += wrap_str(row, spaces, "Status: " + player["info"]["status"], spaces, panel)
-    panel.addstr(row, spaces, "Most played gods (in ranked conquest)")
+    row += wrap_str(
+        row, indent * spaces, "Status: " + player["info"]["status"], spaces, panel
+    )
+    panel.addstr(row, indent * spaces, "Alt name: " + player["info"]["alt_name"])
     row += 1
+    panel.addstr(row, indent * spaces, "Ranked conquest")
+    row += 1
+    indent += 1
+    panel.addstr(row, indent * spaces, "MMR: " + player["info"]["mmr"])
+    row += 1
+    panel.addstr(row, indent * spaces, "Matches: " + player["info"]["matches"])
+    row += 1
+    panel.addstr(row, indent * spaces, "Last: " + player["info"]["last"])
+    row += 1
+    panel.addstr(row, indent * spaces, "Most played gods")
+    row += 1
+    indent += 1
     for god in player["info"]["gods"]:
-        panel.addstr(row, 2 * spaces, god["name"])
+        panel.addstr(row, indent * spaces, god["name"])
         row += 1
-        panel.addstr(row, 3 * spaces, "Matches played: " + god["matches"])
+        indent += 1
+        panel.addstr(row, indent * spaces, "Matches: " + god["matches"])
         row += 1
-        panel.addstr(row, 3 * spaces, "WR: " + god["wr"])
+        panel.addstr(row, indent * spaces, "Wins: " + god["wins"])
         row += 1
-        panel.addstr(row, 3 * spaces, "Last: " + god["last"])
+        panel.addstr(row, indent * spaces, "Last: " + god["last"])
         row += 1
-    panel.addstr(row, spaces, "Recent matches (in ranked conquest)")
+        indent -= 1
+    indent -= 1
+    panel.addstr(row, indent * spaces, "Recent matches")
     row += 1
-    for i, match in enumerate(player["info"]["matches"], 1):
-        panel.addstr(row, 2 * spaces, "Match #1")
+    indent += 1
+    for i, match in enumerate(player["info"]["recent_matches"], 1):
+        panel.addstr(row, indent * spaces, f"Match #{i}")
         row += 1
-        panel.addstr(row, 3 * spaces, "Outcome: " + match["outcome"])
+        indent += 1
+        panel.addstr(row, indent * spaces, "Outcome: " + match["outcome"])
         row += 1
-        panel.addstr(row, 3 * spaces, "Length: " + match["length"])
+        panel.addstr(row, indent * spaces, "Length: " + match["length"])
         row += 1
-        panel.addstr(row, 3 * spaces, "Role: " + match["role"])
+        panel.addstr(row, indent * spaces, "Role: " + match["role"])
         row += 1
-        panel.addstr(row, 3 * spaces, "God: " + match["god"])
+        panel.addstr(row, indent * spaces, "God: " + match["god"])
         row += 1
-        panel.addstr(row, 3 * spaces, "KDA: " + match["kda"])
+        panel.addstr(row, indent * spaces, "KDA: " + match["kda"])
         row += 1
+        indent -= 1
+    indent -= 1
     panel.refresh()
 
 
 def main(
-    players: List[Player],
+    players: list[Player],
     screen=curses.initscr(),
 ):
     assert players
@@ -170,7 +211,7 @@ def main(
     for i, player in enumerate(players, 1):
         screen.addstr(i, spaces, player["name"])
     screen.noutrefresh()
-    offset = 1 + len(players)
+    offset = 1 + len(players) + 1  # +1 for header and +1 for an empty line.
 
     # new windows -> draw info boxes - only name and loading or skipped
     total_width = curses.COLS
@@ -271,15 +312,17 @@ def main(
             update_name(y)
             set_yx(y, x)
         elif c == "\n":
-            y, _ = get_yx()
+            y, x = get_yx()
             players[y]["name"] = names_buffer[y]
             update_name(y)
             panels[y].clear()
+            panels[y].box("|", "-")
             panels[y].addstr(players[y]["name"])
             panels[y].addstr(1, spaces, "loading...")
             panels[y].refresh()
             players[y]["info"] = call_hirez_api(players[y]["name"])
             redraw_panel(spaces, players[y], panels[y])
+            set_yx(y, x)
         elif c == "\x1B":
             return
         elif isinstance(c, str):
@@ -295,10 +338,12 @@ def main(
 
 
 def take_screenshot() -> PIL.Image.Image:
-    raise NotImplementedError
+    path = "tmp.png"
+    subprocess.run(["./nircmd.exe", "savescreenshot", path], check=True)
+    return get_image_from_file(path)
 
 
-def get_players_from_history(desired_i: int) -> List[Player]:
+def get_players_from_history(desired_i: int) -> list[Player]:
     history = sorted(history_folder.iterdir(), reverse=True)
     fp = next(x for i, x in enumerate(history, 1) if i == desired_i)
     return get_players_from_file(fp)
@@ -311,7 +356,7 @@ def get_image_from_file(fp: str | Path) -> PIL.Image.Image | None:
         return None
 
 
-def get_players_from_file(fp: str | Path) -> List[Player]:
+def get_players_from_file(fp: str | Path) -> list[Player]:
     with open(fp, encoding="utf8") as f:
         return json.load(f)
 
@@ -322,11 +367,16 @@ def b(top, height, left, width):
     return left, top, right, bottom
 
 
-def magic(img: PIL.Image.Image):
-    return pytesseract.image_to_string(img).strip()
+def cleanup(name: str) -> str:
+    name = [part for part in name.split() if len(part) > 2]
+    name = " ".join(name)
+    name = name.strip(" \n|")
+    if name == "Kapitan":
+        name = "Kapitán"
+    return name
 
 
-def get_names_from_screenshot(img: PIL.Image.Image) -> List[str]:
+def get_names_from_screenshot(img_screen: PIL.Image.Image) -> list[str]:
     height = 33
     left = 95
     width = 320
@@ -340,9 +390,15 @@ def get_names_from_screenshot(img: PIL.Image.Image) -> List[str]:
     tops = [first_top, second_top, third_top, fourth_top, fifth_top]
 
     names = []
-    for top in tops:
-        x = PIL.ImageOps.crop(img, cast(int, b(top, height, left, width)))
-        names.append(magic(x))
+    for i, top in enumerate(tops, 1):
+        border = b(top, height, left, width)
+        img_name = PIL.ImageOps.crop(img_screen, typing.cast(int, border))
+        img_name.save(debug_folder / f"name{i}.png")
+        name = pytesseract.image_to_string(img_name)
+        names.append(name)
+    with open(debug_folder / "names.json", "w", encoding="utf8") as f:
+        json.dump(names, f)
+    names = [cleanup(name) for name in names]
     return names
 
 
