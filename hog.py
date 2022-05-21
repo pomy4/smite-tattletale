@@ -1,3 +1,4 @@
+import asyncio
 import curses
 import curses.ascii
 import datetime
@@ -11,13 +12,13 @@ import PIL.Image
 import PIL.ImageOps
 import pytesseract
 
-from api import Api
+from aapi import Api
 
 skipped_names = []  # ["Siemka4", "Kapitán"]
 history_folder = Path("node_modules")
 debug_folder = Path("debug")
 assert history_folder.is_dir() and debug_folder.is_dir()
-api = Api()
+api: Api | None = None
 
 
 class GodInfo(typing.TypedDict):
@@ -58,14 +59,28 @@ def make_date_sensible(date: str) -> str:
     return f"{x[1]}/{x[0]}/{x[2]}" if len(x) == 3 else date
 
 
-def call_hirez_api(player: str) -> PlayerInfo | None:
-    getplayer_resp = api.call_method("getplayer", player)
-    if not getplayer_resp.ok:
+async def call_hirez_api(player: str) -> PlayerInfo | None:
+    getplayer_task = asyncio.create_task(api.call_method("getplayer", player))
+    getqueuestats_task = asyncio.create_task(
+        api.call_method("getqueuestats", player, "451")
+    )
+    getmatchhistory_task = asyncio.create_task(
+        api.call_method("getmatchhistory", player)
+    )
+
+    try:
+        getplayer_json = await getplayer_task
+    except:
+        getqueuestats_task.cancel()
+        getmatchhistory_task.cancel()
+        raise
+
+    # If player is not found, empty list is returned.
+    if not getplayer_json:
+        getqueuestats_task.cancel()
+        getmatchhistory_task.cancel()
         return None
 
-    getplayer_json = getplayer_resp.json()
-    if not getplayer_json:
-        return None
     x = getplayer_json[0]
 
     # For private players, integer values return zero and string values null.
@@ -78,10 +93,12 @@ def call_hirez_api(player: str) -> PlayerInfo | None:
         "mmr": f"{x['Rank_Stat_Conquest']:.0f}",
     }
 
-    getqueuestats_resp = api.call_method("getqueuestats", player, "451")
-    getqueuestats_resp.raise_for_status()
+    try:
+        getqueuestats_json = await getqueuestats_task
+    except:
+        getmatchhistory_task.cancel()
+        raise
 
-    getqueuestats_json = getqueuestats_resp.json()
     matches = sum(x["Matches"] for x in getqueuestats_json)
     res["matches"] = str(matches)
     res["gods"] = [
@@ -94,11 +111,8 @@ def call_hirez_api(player: str) -> PlayerInfo | None:
         for x in getqueuestats_json[:3]
     ]
 
-    getmatchhistory_resp = api.call_method("getmatchhistory", player)
-    getmatchhistory_resp.raise_for_status()
-
-    xx = getmatchhistory_resp.json()
-    xx = [x for x in xx if x["Match_Queue_Id"] == 451]
+    getmatchhistory_json = await getmatchhistory_task
+    xx = [x for x in getmatchhistory_json if x["Match_Queue_Id"] == 451]
     res["recent_matches"] = [
         {
             "outcome": x["Win_Status"],
@@ -131,14 +145,33 @@ def wrap_str(y: int, x: int, s: str, spaces: int, panel=curses.initscr()):
         y_inc += 1
 
 
-def redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
+async def redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
+    await _redraw_panel(spaces, player, panel)
+    panel.refresh()
+
+
+async def _redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
     panel.clear()
     panel.box("|", "-")
     panel.addstr(player["name"])
-    if player["info"] is None:
-        panel.addstr(1, spaces, "not found")
+
+    if not player["name"]:
+        return panel.addstr(1, spaces, "empty name")
+
+    if player["name"] in skipped_names:
+        return panel.addstr(1, spaces, "skipped")
+
+    if "info" not in player:
+        panel.addstr(1, spaces, "loading...")
         panel.refresh()
-        return
+        try:
+            player["info"] = await call_hirez_api(player["name"])
+        except Exception as e:
+            return wrap_str(1, spaces, f"{e.__class__.__name__}: {e}", spaces, panel)
+
+    if player["info"] is None:
+        return panel.addstr(1, spaces, "not found")
+
     row = 1
     indent = 1
     panel.addstr(row, indent * spaces, "Level: " + player["info"]["level"])
@@ -195,10 +228,9 @@ def redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
         row += 1
         indent -= 1
     indent -= 1
-    panel.refresh()
 
 
-def main(
+async def main(
     players: list[Player],
     screen=curses.initscr(),
 ):
@@ -210,7 +242,7 @@ def main(
     screen.addstr("Players:")
     for i, player in enumerate(players, 1):
         screen.addstr(i, spaces, player["name"])
-    screen.noutrefresh()
+    screen.refresh()
     offset = 1 + len(players) + 1  # +1 for header and +1 for an empty line.
 
     # new windows -> draw info boxes - only name and loading or skipped
@@ -227,27 +259,12 @@ def main(
         )
         for i in range(len(players))
     ]
-    for panel, player in zip(panels, players):
-        panel.box("|", "-")
-        panel.addstr(player["name"])
-        if player["name"] in skipped_names:
-            panel.addstr(1, spaces, "skipped")
-        else:
-            panel.addstr(1, spaces, "loading...")
-        panel.noutrefresh()
+    tasks = [
+        redraw_panel(spaces, player, panel) for player, panel in zip(players, panels)
+    ]
+    await asyncio.gather(*tasks)
 
     screen.move(1, spaces)
-    curses.doupdate()
-
-    # go through names and call hirez api, update panel
-    for panel, player in zip(panels, players):
-        if player["name"] in skipped_names:
-            continue
-        if "info" not in player:
-            player["info"] = call_hirez_api(player["name"])
-        redraw_panel(spaces, player, panel)
-
-    # while true:
     names_buffer = [player["name"] for player in players]
     screen.nodelay(False)
     curses.flushinp()
@@ -315,13 +332,7 @@ def main(
             y, x = get_yx()
             players[y]["name"] = names_buffer[y]
             update_name(y)
-            panels[y].clear()
-            panels[y].box("|", "-")
-            panels[y].addstr(players[y]["name"])
-            panels[y].addstr(1, spaces, "loading...")
-            panels[y].refresh()
-            players[y]["info"] = call_hirez_api(players[y]["name"])
-            redraw_panel(spaces, players[y], panels[y])
+            await redraw_panel(spaces, players[y], panels[y])
             set_yx(y, x)
         elif c == "\x1B":
             return
@@ -403,6 +414,10 @@ def get_names_from_screenshot(img_screen: PIL.Image.Image) -> list[str]:
 
 
 def main_outer(screen=curses.initscr()):
+    asyncio.run(amain_outer(screen))
+
+
+async def amain_outer(screen=curses.initscr()):
     img = names = players = None
     save_to_history = False
     if len(sys.argv) == 1:
@@ -431,7 +446,10 @@ def main_outer(screen=curses.initscr()):
     now = datetime.datetime.now().isoformat()
     now = now.replace(":", "꞉")  # https://stackoverflow.com/a/25477235
     try:
-        main(players, screen)
+        async with Api() as _api:
+            global api
+            api = _api
+            await main(players, screen)
     except KeyboardInterrupt:
         pass
     if save_to_history:
