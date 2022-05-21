@@ -24,7 +24,7 @@ class Api:
         if not verify:
             urllib3.disable_warnings(category=urllib3.exceptions.InsecureRequestWarning)
         self.last: datetime.datetime | None = None
-        self.session: str | None = None
+        self.session_id: str | None = None
         assert self.dev_id and self.auth_key
 
     def ping(self):
@@ -49,7 +49,7 @@ class Api:
         signature = self.create_signature(method_name, timestamp)
         url = (
             f"{self.base_url}/{method_name}json/{self.dev_id}/{signature}/"
-            + (f"{self.session}/" if self.session else "")
+            + (f"{self.session_id}/" if self.session_id else "")
             + timestamp
         )
         for arg in args:
@@ -57,9 +57,9 @@ class Api:
         return requests.get(url, verify=self.verify)
 
     def create_session(self):
-        self.session = self._call_method("createsession").json()["session_id"]
+        self.session_id = self._call_method("createsession").json()["session_id"]
 
     def call_method(self, *args):
-        if self.session is None:
+        if self.session_id is None:
             self.create_session()
         return self._call_method(*args)
