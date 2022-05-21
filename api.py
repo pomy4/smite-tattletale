@@ -6,10 +6,6 @@ import time
 import requests
 import urllib3.exceptions
 
-requests.packages.urllib3.disable_warnings(
-    category=urllib3.exceptions.InsecureRequestWarning
-)
-
 
 class Api:
     base_url = "https://api.smitegame.com/smiteapi.svc"
@@ -19,17 +15,20 @@ class Api:
         dev_id: str = os.getenv("SMITE_DEV_ID"),
         auth_key: str = os.getenv("SMITE_AUTH_KEY"),
         delay: datetime.timedelta | None = datetime.timedelta(milliseconds=100),
+        verify: bool = False,
     ):
         self.dev_id = dev_id
         self.auth_key = auth_key
         self.delay = delay
+        self.verify = verify
+        if not verify:
+            urllib3.disable_warnings(category=urllib3.exceptions.InsecureRequestWarning)
         self.last: datetime.datetime | None = None
         self.session: str | None = None
         assert self.dev_id and self.auth_key
 
-    @staticmethod
-    def ping():
-        return requests.get(f"{Api.base_url}/pingjson")
+    def ping(self):
+        return requests.get(f"{Api.base_url}/pingjson", verify=self.verify)
 
     def create_signature(self, method_name: str, timestamp: str):
         return hashlib.md5(
@@ -55,7 +54,7 @@ class Api:
         )
         for arg in args:
             url += f"/{arg}"
-        return requests.get(url, verify=False)  # TODO parameter (in __init__?)
+        return requests.get(url, verify=self.verify)
 
     def create_session(self):
         self.session = self._call_method("createsession").json()["session_id"]
