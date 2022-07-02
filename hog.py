@@ -8,16 +8,16 @@ import sys
 import typing
 from pathlib import Path
 
+import charybdis
 import PIL.Image
 import PIL.ImageOps
 import pytesseract
-from charybdis.aapi import Api
 
 skipped_names = []  # ["Siemka4", "Kapitán"]
 history_folder = Path("node_modules")
 debug_folder = Path("debug")
 assert history_folder.is_dir() and debug_folder.is_dir()
-api: Api | None = None
+api: charybdis.Api | None = None
 
 
 class GodInfo(typing.TypedDict):
@@ -59,12 +59,12 @@ def make_date_sensible(date: str) -> str:
 
 
 async def call_hirez_api(player: str) -> PlayerInfo | None:
-    getplayer_task = asyncio.create_task(api.call_method("getplayer", player))
+    getplayer_task = asyncio.create_task(api.acall_method("getplayer", player))
     getqueuestats_task = asyncio.create_task(
-        api.call_method("getqueuestats", player, "451")
+        api.acall_method("getqueuestats", player, "451")
     )
     getmatchhistory_task = asyncio.create_task(
-        api.call_method("getmatchhistory", player)
+        api.acall_method("getmatchhistory", player)
     )
 
     try:
@@ -445,7 +445,7 @@ async def amain_outer(screen=curses.initscr()):
     now = datetime.datetime.now().isoformat()
     now = now.replace(":", "꞉")  # https://stackoverflow.com/a/25477235
     try:
-        async with Api() as _api:
+        async with charybdis.Api() as _api:
             global api
             api = _api
             await main(players, screen)
