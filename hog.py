@@ -11,8 +11,7 @@ from pathlib import Path
 import PIL.Image
 import PIL.ImageOps
 import pytesseract
-
-from aapi import Api
+from charybdis.aapi import Api
 
 skipped_names = []  # ["Siemka4", "Kapitán"]
 history_folder = Path("node_modules")
