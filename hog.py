@@ -53,6 +53,10 @@ class Player(typing.TypedDict, total=False):
     info: typing.Optional[PlayerInfo]
 
 
+class UserExit(Exception):
+    pass
+
+
 def make_date_sensible(date: str) -> str:
     x = date.split("/")
     return f"{x[1]}/{x[0]}/{x[2]}" if len(x) == 3 else date
@@ -152,9 +156,9 @@ def wrap_str(max_x: int, spaces: int, x: int, s: str):
             x += spaces
 
 
-async def redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
+async def redraw_panel(player: Player, panel=curses.initscr()):
+    spaces = 2
     max_y, max_x = panel.getmaxyx()
-    panel.clear()
     panel.box("|", "-")
     panel.addstr(0, 0, trunc_str(max_x, 0, player["name"]))
 
@@ -224,59 +228,79 @@ def _redraw_panel(max_x: int, spaces: int, info: PlayerInfo | None) -> list[str]
     return lines
 
 
+def write_header_and_get_panel_y_width_height(
+    players: list[Player], screen=curses.initscr()
+) -> tuple[int, int, int]:
+    screen.clear()
+    screen.move(0, 0)
+    y = 1 + len(players) + 1  # +1 for header and +1 for an empty line
+    max_y, max_x = screen.getmaxyx()
+
+    if y + 3 > max_y or max_x < 80:
+        screen.addstr(trunc_str(max_x, 0, "Screen too small, please resize."))
+        screen.refresh()
+        while True:
+            c = screen.get_wch()
+            if c == "\x1B":
+                raise UserExit
+            elif c == curses.KEY_RESIZE:
+                max_y, max_x = screen.getmaxyx()
+                if y + 3 <= max_y and max_x >= 80:
+                    screen.clear()
+                    screen.move(0, 0)
+                    break
+
+    screen.addstr("Players:")
+    for i, player in enumerate(players, 1):
+        screen.addstr(i, 2, player["name"])
+    screen.refresh()
+
+    width = max_x // len(players)
+    height = max_y - y
+    return y, width, height
+
+
 async def main(
     players: list[Player],
     screen=curses.initscr(),
 ):
-    assert players
-    spaces = 2
-    screen.clear()
+    if not players:
+        raise ValueError("No players selected")
 
-    # new window -> draw names
-    screen.addstr("Players:")
-    for i, player in enumerate(players, 1):
-        screen.addstr(i, spaces, player["name"])
-    screen.refresh()
-    offset = 1 + len(players) + 1  # +1 for header and +1 for an empty line.
-
-    # new windows -> draw info boxes - only name and loading or skipped
-    total_width = curses.COLS
-    total_height = curses.LINES
-
-    panel_width = int(total_width / len(players))
+    panel_y, panel_width, panel_height = write_header_and_get_panel_y_width_height(
+        players, screen
+    )
     panels = [
         curses.newwin(
-            total_height - offset,  # nlines
+            panel_height,  # nlines
             panel_width,  # ncols
-            offset,  # begin_y
+            panel_y,  # begin_y
             i * panel_width,  # begin_x
         )
         for i in range(len(players))
     ]
-    tasks = [
-        redraw_panel(spaces, player, panel) for player, panel in zip(players, panels)
-    ]
+    tasks = [redraw_panel(player, panel) for player, panel in zip(players, panels)]
     await asyncio.gather(*tasks)
 
-    screen.move(1, spaces)
+    screen.move(1, 2)
     names_buffer = [player["name"] for player in players]
     screen.nodelay(False)
     curses.flushinp()
 
     def get_yx():
         y_, x_ = curses.getsyx()
-        return y_ - 1, x_ - spaces
+        return y_ - 1, x_ - 2
 
     def set_yx(y_, x_):
-        screen.move(y_ + 1, x_ + spaces)
+        screen.move(y_ + 1, x_ + 2)
 
     def update_name(y_):
         screen.move(y_ + 1, 0)  # So that clrtoeol is called on the correct line.
         screen.clrtoeol()
         if players[y_]["name"] == names_buffer[y_]:
-            screen.addstr(y_ + 1, spaces, names_buffer[y_])
+            screen.addstr(y_ + 1, 2, names_buffer[y_])
         else:
-            screen.addstr(y_ + 1, spaces, names_buffer[y_] + " (*)")
+            screen.addstr(y_ + 1, 2, names_buffer[y_] + " (*)")
 
     while True:
         c = screen.get_wch()
@@ -328,10 +352,25 @@ async def main(
                 del players[y]["info"]
             players[y]["name"] = names_buffer[y]
             update_name(y)
-            await redraw_panel(spaces, players[y], panels[y])
+            panels[y].clear()
+            await redraw_panel(players[y], panels[y])
             set_yx(y, x)
         elif c == "\x1B":
             return
+        elif c == curses.KEY_RESIZE:
+            (
+                panel_y,
+                panel_width,
+                panel_height,
+            ) = write_header_and_get_panel_y_width_height(players, screen)
+            for i, panel in enumerate(panels):
+                panel_x = i * panel_width
+                panel.clear()
+                panel.resize(1, 1)
+                panel.mvwin(panel_y, panel_x)
+                panel.resize(panel_height, panel_width)
+            for player, panel in zip(players, panels):
+                await redraw_panel(player, panel)
         elif isinstance(c, str):
             y, x = get_yx()
             if len(names_buffer[y]) >= 32:
@@ -446,7 +485,7 @@ async def amain_outer(screen=curses.initscr()):
             global api
             api = _api
             await main(players, screen)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, UserExit):
         pass
     if save_to_history:
         with open(f"node_modules/{now}.json", "w") as f:
