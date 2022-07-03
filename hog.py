@@ -505,7 +505,7 @@ async def amain_outer(screen=curses.initscr()):
     if players is None:
         if names is None:
             if img is None:
-                assert False
+                raise ValueError("No players found")
             names = get_names_from_screenshot(img)
         players = [{"name": name} for name in names]
 
