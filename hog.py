@@ -51,6 +51,7 @@ class PlayerInfo(typing.TypedDict):
 class Player(typing.TypedDict, total=False):
     name: str
     info: typing.Optional[PlayerInfo]
+    error: typing.Optional[str]
 
 
 class UserExit(Exception):
@@ -156,7 +157,7 @@ def wrap_str(max_x: int, spaces: int, x: int, s: str):
             x += spaces
 
 
-async def redraw_panel(player: Player, panel=curses.initscr()):
+async def redraw_panel(retry: bool, player: Player, panel=curses.initscr()):
     spaces = 2
     max_y, max_x = panel.getmaxyx()
     panel.box("|", "-")
@@ -166,14 +167,19 @@ async def redraw_panel(player: Player, panel=curses.initscr()):
         lines = ["empty name"]
     elif player["name"] in skipped_names:
         lines = ["skipped"]
+    elif not retry and "error" in player:
+        lines = wrap_str(max_x - 4, spaces, 0, player["error"])
     elif "info" not in player:
         panel.addstr(1, 2, "loading...")
         panel.refresh()
         try:
             player["info"] = await call_hirez_api(player["name"])
         except Exception as e:
-            lines = wrap_str(max_x - 4, spaces, 0, f"{e.__class__.__name__}: {e}")
+            player["error"] = f"{e.__class__.__name__}: {e}"
+            lines = wrap_str(max_x - 4, spaces, 0, player["error"])
         else:
+            if "error" in player:
+                del player["error"]
             lines = _redraw_panel(max_x - 4, spaces, player["info"])
         panel.addstr(1, 2, " " * len("loading..."))
     else:
@@ -283,7 +289,9 @@ async def main(
         )
         for i in range(len(players))
     ]
-    tasks = [redraw_panel(player, panel) for player, panel in zip(players, panels)]
+    tasks = [
+        redraw_panel(False, player, panel) for player, panel in zip(players, panels)
+    ]
     await asyncio.gather(*tasks)
 
     names_buffer = [player["name"] for player in players]
@@ -316,7 +324,7 @@ async def main(
             panel.mvwin(panel_y, panel_x)
             panel.resize(panel_height, panel_width)
         for player, panel in zip(players, panels):
-            await redraw_panel(player, panel)
+            await redraw_panel(False, player, panel)
 
     screen.nodelay(True)
     while True:
@@ -386,7 +394,7 @@ async def main(
             players[y]["name"] = names_buffer[y]
             update_name(y)
             panels[y].clear()
-            await redraw_panel(players[y], panels[y])
+            await redraw_panel(True, players[y], panels[y])
             set_yx(y, x)
         elif c == "\x1B":
             return
