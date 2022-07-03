@@ -239,6 +239,8 @@ def write_header_and_get_panel_y_width_height(
     if y + 3 > max_y or max_x < 80:
         screen.addstr(trunc_str(max_x, 0, "Screen too small, please resize."))
         screen.refresh()
+
+        screen.nodelay(False)
         while True:
             c = screen.get_wch()
             if c == "\x1B":
@@ -267,25 +269,24 @@ async def main(
     if not players:
         raise ValueError("No players selected")
 
-    panel_y, panel_width, panel_height = write_header_and_get_panel_y_width_height(
-        players, screen
-    )
+    (
+        initial_panel_y,
+        initial_panel_width,
+        initial_panel_height,
+    ) = write_header_and_get_panel_y_width_height(players, screen)
     panels = [
         curses.newwin(
-            panel_height,  # nlines
-            panel_width,  # ncols
-            panel_y,  # begin_y
-            i * panel_width,  # begin_x
+            initial_panel_height,  # nlines
+            initial_panel_width,  # ncols
+            initial_panel_y,  # begin_y
+            i * initial_panel_width,  # begin_x
         )
         for i in range(len(players))
     ]
     tasks = [redraw_panel(player, panel) for player, panel in zip(players, panels)]
     await asyncio.gather(*tasks)
 
-    screen.move(1, 2)
     names_buffer = [player["name"] for player in players]
-    screen.nodelay(False)
-    curses.flushinp()
 
     def get_yx():
         y_, x_ = curses.getsyx()
@@ -302,6 +303,38 @@ async def main(
         else:
             screen.addstr(y_ + 1, 2, names_buffer[y_] + " (*)")
 
+    async def resize():
+        (
+            panel_y,
+            panel_width,
+            panel_height,
+        ) = write_header_and_get_panel_y_width_height(players, screen)
+        for i, panel in enumerate(panels):
+            panel_x = i * panel_width
+            panel.clear()
+            panel.resize(1, 1)
+            panel.mvwin(panel_y, panel_x)
+            panel.resize(panel_height, panel_width)
+        for player, panel in zip(players, panels):
+            await redraw_panel(player, panel)
+
+    screen.nodelay(True)
+    while True:
+        try:
+            c = screen.get_wch()
+            if c == "\x1B":
+                return
+            elif c == curses.KEY_RESIZE:
+                await resize()
+                break
+        except curses.error as e:
+            if str(e) == "no input":
+                break
+            else:
+                raise
+    screen.move(1, 2)
+
+    screen.nodelay(False)
     while True:
         c = screen.get_wch()
         # Moving the cursor, maybe should be a bit more DRY.
@@ -358,19 +391,9 @@ async def main(
         elif c == "\x1B":
             return
         elif c == curses.KEY_RESIZE:
-            (
-                panel_y,
-                panel_width,
-                panel_height,
-            ) = write_header_and_get_panel_y_width_height(players, screen)
-            for i, panel in enumerate(panels):
-                panel_x = i * panel_width
-                panel.clear()
-                panel.resize(1, 1)
-                panel.mvwin(panel_y, panel_x)
-                panel.resize(panel_height, panel_width)
-            for player, panel in zip(players, panels):
-                await redraw_panel(player, panel)
+            y, x = get_yx()
+            await resize()
+            set_yx(y, x)
         elif isinstance(c, str):
             y, x = get_yx()
             if len(names_buffer[y]) >= 32:
