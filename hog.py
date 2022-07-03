@@ -329,6 +329,8 @@ async def main(
             set_yx(y, x)
         elif c == "\n":
             y, x = get_yx()
+            if players[y]["name"] != names_buffer[y] and "info" in players[y]:
+                del players[y]["info"]
             players[y]["name"] = names_buffer[y]
             update_name(y)
             await redraw_panel(spaces, players[y], panels[y])
