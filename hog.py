@@ -69,7 +69,7 @@ async def call_hirez_api(player: str) -> PlayerInfo | None:
 
     try:
         getplayer_json = await getplayer_task
-    except:
+    except:  # noqa
         getqueuestats_task.cancel()
         getmatchhistory_task.cancel()
         raise
@@ -94,7 +94,7 @@ async def call_hirez_api(player: str) -> PlayerInfo | None:
 
     try:
         getqueuestats_json = await getqueuestats_task
-    except:
+    except:  # noqa
         getmatchhistory_task.cancel()
         raise
 
