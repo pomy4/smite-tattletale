@@ -127,106 +127,101 @@ async def call_hirez_api(player: str) -> PlayerInfo | None:
     return res
 
 
-def wrap_str(y: int, x: int, s: str, spaces: int, panel=curses.initscr()):
-    _, max_x = panel.getmaxyx()
+def trunc_str(max_x: int, x: int, s: str) -> str:
+    s = f"{' ' * x}{s}"
+    if len(s) > max_x:
+        s = f"{s[:max_x - 3]}..."
+    return s
+
+
+def wrap_str(max_x: int, spaces: int, x: int, s: str):
     curr_s = s
-    y_inc = 0
+    lines = []
     while True:
-        if x + len(curr_s) < max_x:
-            panel.addstr(y + y_inc, x, curr_s)
-            return y_inc + 1
-        # -1 because counting from zero, -1 because hyphen, -1 because border
-        offset = max_x - x - 1 - 1 - 1
-        panel.addstr(y + y_inc, x, curr_s[:offset] + "-")
-        curr_s = curr_s[offset:]
-        if y_inc == 0:
+        if x + len(curr_s) <= max_x:
+            lines.append(f"{' ' * x}{curr_s}")
+            return lines
+        # -1 for hyphen.
+        wrap = max_x - x - 1
+        if wrap < 1:
+            lines.append(trunc_str(max_x, x, curr_s))
+            return lines
+        lines.append(f"{' ' * x}{curr_s[:wrap]}-")
+        curr_s = curr_s[wrap:]
+        if len(lines) == 1:
             x += spaces
-        y_inc += 1
 
 
 async def redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
-    await _redraw_panel(spaces, player, panel)
-    panel.refresh()
-
-
-async def _redraw_panel(spaces: int, player: Player, panel=curses.initscr()):
+    max_y, max_x = panel.getmaxyx()
     panel.clear()
     panel.box("|", "-")
-    panel.addstr(player["name"])
+    panel.addstr(0, 0, trunc_str(max_x, 0, player["name"]))
 
-    if not player["name"]:
-        return panel.addstr(1, spaces, "empty name")
-
-    if player["name"] in skipped_names:
-        return panel.addstr(1, spaces, "skipped")
-
-    if "info" not in player:
-        panel.addstr(1, spaces, "loading...")
+    if player["name"] == "":
+        lines = ["empty name"]
+    elif player["name"] in skipped_names:
+        lines = ["skipped"]
+    elif "info" not in player:
+        panel.addstr(1, 2, "loading...")
         panel.refresh()
         try:
             player["info"] = await call_hirez_api(player["name"])
         except Exception as e:
-            return wrap_str(1, spaces, f"{e.__class__.__name__}: {e}", spaces, panel)
+            lines = wrap_str(max_x - 4, spaces, 0, f"{e.__class__.__name__}: {e}")
+        else:
+            lines = _redraw_panel(max_x - 4, spaces, player["info"])
+        panel.addstr(1, 2, " " * len("loading..."))
+    else:
+        lines = _redraw_panel(max_x - 4, spaces, player["info"])
 
-    if player["info"] is None:
-        return panel.addstr(1, spaces, "not found")
+    if len(lines) > max_y - 2:
+        lines = lines[: max_y - 3]
+        lines.append("...")
+    for y, line in enumerate(lines, 1):
+        panel.addstr(y, 2, line)
+    panel.refresh()
 
-    row = 1
-    indent = 1
-    panel.addstr(row, indent * spaces, "Level: " + player["info"]["level"])
-    row += 1
-    panel.addstr(row, indent * spaces, "Hours: " + player["info"]["hours"])
-    row += 1
-    panel.addstr(row, indent * spaces, "Created: " + player["info"]["created"])
-    row += 1
-    row += wrap_str(
-        row, indent * spaces, "Status: " + player["info"]["status"], spaces, panel
-    )
-    panel.addstr(row, indent * spaces, "Alt name: " + player["info"]["alt_name"])
-    row += 1
-    panel.addstr(row, indent * spaces, "Ranked conquest")
-    row += 1
-    indent += 1
-    panel.addstr(row, indent * spaces, "MMR: " + player["info"]["mmr"])
-    row += 1
-    panel.addstr(row, indent * spaces, "Matches: " + player["info"]["matches"])
-    row += 1
-    panel.addstr(row, indent * spaces, "Last: " + player["info"]["last"])
-    row += 1
-    panel.addstr(row, indent * spaces, "Most played gods")
-    row += 1
-    indent += 1
-    for god in player["info"]["gods"]:
-        panel.addstr(row, indent * spaces, god["name"])
-        row += 1
-        indent += 1
-        panel.addstr(row, indent * spaces, "Matches: " + god["matches"])
-        row += 1
-        panel.addstr(row, indent * spaces, "Wins: " + god["wins"])
-        row += 1
-        panel.addstr(row, indent * spaces, "Last: " + god["last"])
-        row += 1
-        indent -= 1
-    indent -= 1
-    panel.addstr(row, indent * spaces, "Recent matches")
-    row += 1
-    indent += 1
-    for i, match in enumerate(player["info"]["recent_matches"], 1):
-        panel.addstr(row, indent * spaces, f"Match #{i}")
-        row += 1
-        indent += 1
-        panel.addstr(row, indent * spaces, "Outcome: " + match["outcome"])
-        row += 1
-        panel.addstr(row, indent * spaces, "Length: " + match["length"])
-        row += 1
-        panel.addstr(row, indent * spaces, "Role: " + match["role"])
-        row += 1
-        panel.addstr(row, indent * spaces, "God: " + match["god"])
-        row += 1
-        panel.addstr(row, indent * spaces, "KDA: " + match["kda"])
-        row += 1
-        indent -= 1
-    indent -= 1
+
+def _redraw_panel(max_x: int, spaces: int, info: PlayerInfo | None) -> list[str]:
+    if info is None:
+        return ["not found"]
+
+    lines = []
+    x = 0
+    lines.append(trunc_str(max_x, x, f"Level: {info['level']}"))
+    lines.append(trunc_str(max_x, x, f"Hours: {info['hours']}"))
+    lines.append(trunc_str(max_x, x, f"Created: {info['created']}"))
+    lines.extend(wrap_str(max_x, spaces, x, f"Status: {info['status']}"))
+    lines.append(trunc_str(max_x, x, f"Alt name: {info['alt_name']}"))
+    lines.append(trunc_str(max_x, x, f"Ranked conquest"))
+    x += spaces
+    lines.append(trunc_str(max_x, x, f"MMR: {info['mmr']}"))
+    lines.append(trunc_str(max_x, x, f"Matches: {info['matches']}"))
+    lines.append(trunc_str(max_x, x, f"Last: {info['last']}"))
+    lines.append(trunc_str(max_x, x, f"Most played gods"))
+    x += spaces
+    for god in info["gods"]:
+        lines.append(trunc_str(max_x, x, god["name"]))
+        x += spaces
+        lines.append(trunc_str(max_x, x, f"Matches: {god['matches']}"))
+        lines.append(trunc_str(max_x, x, f"Wins: {god['wins']}"))
+        lines.append(trunc_str(max_x, x, f"Last: {god['last']}"))
+        x -= spaces
+    x -= spaces
+    lines.append(trunc_str(max_x, x, f"Recent matches"))
+    x += spaces
+    for i, match in enumerate(info["recent_matches"], 1):
+        lines.append(trunc_str(max_x, x, f"Match #{i}"))
+        x += spaces
+        lines.append(trunc_str(max_x, x, f"Outcome: {match['outcome']}"))
+        lines.append(trunc_str(max_x, x, f"Length: {match['length']}"))
+        lines.append(trunc_str(max_x, x, f"Role: {match['role']}"))
+        lines.append(trunc_str(max_x, x, f"God: {match['god']}"))
+        lines.append(trunc_str(max_x, x, f"KDA: {match['kda']}"))
+        x -= spaces
+    x -= spaces
+    return lines
 
 
 async def main(
