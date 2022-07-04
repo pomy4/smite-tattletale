@@ -97,7 +97,8 @@ async def main_outer(screen=curses.initscr()):
 
 def take_screenshot() -> PIL.Image.Image:
     img_path = debug_dir / "lobby.png" if debug_dir.is_dir() else Path("tmp.png")
-    subprocess.run(["./nircmd.exe", "savescreenshot", img_path], check=True)
+    nircmd = "./nircmd.exe" if Path("nircmd.exe").is_file() else "nircmd.exe"
+    subprocess.run([nircmd, "savescreenshot", img_path], check=True)
     try:
         img = get_image_from_file(img_path)
     finally:
