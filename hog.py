@@ -58,9 +58,69 @@ class UserExit(Exception):
     pass
 
 
-def make_date_sensible(date: str) -> str:
-    x = date.split("/")
-    return f"{x[1]}/{x[0]}/{x[2]}" if len(x) == 3 else date
+def parse_date(date: str) -> datetime.datetime:
+    date, time, meridiem = date.split(" ")
+    month, day, year = date.split("/")
+    hour, minute, second = time.split(":")
+    year = int(year)
+    month = int(month)
+    day = int(day)
+    hour = int(hour)
+    minute = int(minute)
+    second = int(second)
+    if meridiem == "PM":
+        hour += 12
+    return datetime.datetime(
+        year=year,
+        month=month,
+        day=day,
+        hour=hour,
+        minute=minute,
+        second=second,
+        tzinfo=datetime.timezone.utc,
+    )
+
+
+def make_full_date(date: str) -> str:
+    return parse_date(date).astimezone().strftime("%d/%m/%Y %H:%M:%S")
+
+
+def make_ago_date(date: str) -> str:
+    before = parse_date(date)
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    seconds_ago = (now - before).total_seconds()
+    if seconds_ago < 60:
+        return f"<1 minute ago"
+    minutes_ago = seconds_ago / 60
+    if minutes_ago < 60:
+        return f"{int(minutes_ago)} minutes ago"
+    hours_ago = minutes_ago / 60
+    if hours_ago < 24:
+        msg = f"{int(hours_ago)} hours"
+        minutes_ago = int(minutes_ago % 60)
+        if minutes_ago > 0:
+            msg += f" and {minutes_ago} minutes"
+        return f"{msg} ago"
+    days_ago = hours_ago / 24
+    if days_ago < 30:
+        msg = f"{int(days_ago)} days"
+        hours_ago = int(hours_ago % 24)
+        if hours_ago > 0:
+            msg += f" and {hours_ago} hours"
+        return f"{msg} ago"
+    months_ago = days_ago / 30
+    if months_ago < 12:
+        msg = f"{int(months_ago)} months"
+        days_ago = int(days_ago % 30)
+        if days_ago > 0:
+            msg += f" and {days_ago} days"
+        return f"{msg} ago"
+    years_ago = months_ago / 12
+    msg = f"{int(years_ago)} years"
+    months_ago = int(months_ago % 12)
+    if months_ago > 0:
+        msg += f" and {months_ago} months"
+    return f"{msg} ago"
 
 
 async def call_hirez_api(player: str) -> PlayerInfo | None:
@@ -91,7 +151,9 @@ async def call_hirez_api(player: str) -> PlayerInfo | None:
     res: PlayerInfo = {
         "level": str(x["Level"]),
         "hours": str(x["HoursPlayed"]),
-        "created": make_date_sensible(str(x["Created_Datetime"])),
+        "created": make_full_date(x["Created_Datetime"])
+        if x["Created_Datetime"] is not None
+        else "None",
         "status": str(x["Personal_Status_Message"]),
         "alt_name": str(x["Name"]),
         "mmr": f"{x['Rank_Stat_Conquest']:.0f}",
@@ -110,7 +172,7 @@ async def call_hirez_api(player: str) -> PlayerInfo | None:
             "name": x["God"],
             "matches": f"{x['Matches']} ({x['Matches'] / matches:.0%})",
             "wins": f"{x['Wins']} ({x['Wins'] / x['Matches']:.0%})",
-            "last": make_date_sensible(x["LastPlayed"]),
+            "last": make_ago_date(x["LastPlayed"]),
         }
         for x in getqueuestats_json[:3]
     ]
@@ -127,7 +189,7 @@ async def call_hirez_api(player: str) -> PlayerInfo | None:
         }
         for x in xx[:3]
     ]
-    res["last"] = make_date_sensible(xx[0]["Match_Time"]) if xx else "None"
+    res["last"] = make_ago_date(xx[0]["Match_Time"]) if xx else "None"
 
     return res
 
