@@ -2,6 +2,7 @@ import asyncio
 import curses
 import datetime
 import json
+import os
 import subprocess
 import sys
 import typing
@@ -12,7 +13,7 @@ import PIL.Image
 import PIL.ImageOps
 import pytesseract
 
-skipped_names = []  # ["Siemka4", "Kapitán"]
+skipped_names = []
 debug_dir = Path("debug")
 history_dir = Path("history")
 
@@ -607,4 +608,7 @@ def parse_date(date: str) -> datetime.datetime:
 
 
 if __name__ == "__main__":
+    skipped_names_str = os.getenv("TT_SKIPPED_NAMES")
+    if skipped_names_str is not None:
+        skipped_names.extend(skipped_names_str.split(";"))
     curses.wrapper(lambda screen: asyncio.run(main_outer(screen)))
