@@ -16,7 +16,6 @@ skipped_names = []  # ["Siemka4", "Kapitán"]
 history_folder = Path("node_modules")
 debug_folder = Path("debug")
 assert history_folder.is_dir() and debug_folder.is_dir()
-api: charybdis.Api | None = None
 
 
 class GodInfo(typing.TypedDict):
@@ -87,10 +86,8 @@ async def main_outer(screen=curses.initscr()):
     now = datetime.datetime.now().isoformat()
     now = now.replace(":", "꞉")  # https://stackoverflow.com/a/25477235
     try:
-        async with charybdis.Api() as _api:
-            global api
-            api = _api
-            await main(players, screen)
+        async with charybdis.Api() as api:
+            await main(api, players, screen)
     except (KeyboardInterrupt, UserExit):
         pass
     if save_to_history:
@@ -164,6 +161,7 @@ def get_players_from_file(fp: str | Path) -> list[Player]:
 
 
 async def main(
+    api: charybdis.Api,
     players: list[Player],
     screen=curses.initscr(),
 ):
@@ -185,7 +183,8 @@ async def main(
         for i in range(len(players))
     ]
     tasks = [
-        redraw_panel(False, player, panel) for player, panel in zip(players, panels)
+        redraw_panel(api, False, player, panel)
+        for player, panel in zip(players, panels)
     ]
     await asyncio.gather(*tasks)
 
@@ -202,7 +201,7 @@ async def main(
             panel.mvwin(panel_y, panel_x)
             panel.resize(panel_height, panel_width)
         for player, panel in zip(players, panels):
-            await redraw_panel(False, player, panel)
+            await redraw_panel(api, False, player, panel)
 
     screen.nodelay(True)
     while True:
@@ -288,7 +287,7 @@ async def main(
             players[y]["name"] = names_buffer[y]
             update_name(y)
             panels[y].clear()
-            await redraw_panel(True, players[y], panels[y])
+            await redraw_panel(api, True, players[y], panels[y])
             set_yx(y, x)
         elif c == "\x1B":
             return
@@ -343,7 +342,9 @@ def write_header_and_get_panel_y_width_height(
     return y, width, height
 
 
-async def redraw_panel(retry: bool, player: Player, panel=curses.initscr()):
+async def redraw_panel(
+    api: charybdis.Api, retry: bool, player: Player, panel=curses.initscr()
+):
     spaces = 2
     max_y, max_x = panel.getmaxyx()
     panel.box("|", "-")
@@ -359,7 +360,7 @@ async def redraw_panel(retry: bool, player: Player, panel=curses.initscr()):
         panel.addstr(1, 2, "loading...")
         panel.refresh()
         try:
-            player["info"] = await call_hirez_api(player["name"])
+            player["info"] = await call_hirez_api(api, player["name"])
         except Exception as e:
             player["error"] = f"{e.__class__.__name__}: {e}"
             lines = wrap_str(max_x - 4, spaces, 0, player["error"])
@@ -445,7 +446,7 @@ def trunc_str(max_x: int, x: int, s: str) -> str:
     return s
 
 
-async def call_hirez_api(player: str) -> PlayerInfo | None:
+async def call_hirez_api(api: charybdis.Api, player: str) -> PlayerInfo | None:
     getplayer_task = asyncio.create_task(api.acall_method("getplayer", player))
     getqueuestats_task = asyncio.create_task(
         api.acall_method("getqueuestats", player, "451")
