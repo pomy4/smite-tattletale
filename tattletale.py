@@ -56,6 +56,11 @@ class UserExit(Exception):
     pass
 
 
+# -------------------------------------
+# Obtaining player names
+# -------------------------------------
+
+
 # The default parameter for screen is there only for type hinting.
 async def main_outer(screen=curses.initscr()):
     img = names = players = None
@@ -182,6 +187,11 @@ def get_players_from_file(fp: str | Path) -> list[Player] | None:
             return json.load(f)  # TODO: validate.
     except FileNotFoundError:
         return None
+
+
+# -------------------------------------
+# Showing player info - curses stuff
+# -------------------------------------
 
 
 async def main(
@@ -468,6 +478,11 @@ def trunc_str(max_x: int, x: int, s: str) -> str:
     if len(s) > max_x:
         s = f"{s[:max_x - 3]}..."
     return s
+
+
+# -------------------------------------
+# Getting player info - hirez stuff
+# -------------------------------------
 
 
 async def call_hirez_api(api: charybdis.Api, player: str) -> PlayerInfo | None:
