@@ -407,7 +407,6 @@ async def main(
     screen.nodelay(False)
     while True:
         c = screen.get_wch()
-        # Moving the cursor, maybe should be a bit more DRY.
         if c == curses.KEY_UP:
             y, x = get_yx()
             if y == 0:
@@ -473,7 +472,8 @@ async def main(
             update_name(y)
             set_yx(y, x)
 
-        # Maybe need to refresh screen here?
+        # I think screen.get_wch() also refreshes screen,
+        # so explicit screen.refresh() is not needed here.
 
 
 def take_screenshot() -> PIL.Image.Image:
