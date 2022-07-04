@@ -13,10 +13,6 @@ import PIL.Image
 import PIL.ImageOps
 import pytesseract
 
-skipped_names = []
-debug_dir = Path("debug")
-history_dir = Path("history")
-
 
 class GodInfo(typing.TypedDict):
     name: str
@@ -59,6 +55,8 @@ class UserExit(Exception):
 # -------------------------------------
 # Obtaining player names
 # -------------------------------------
+debug_dir = Path("debug")
+history_dir = Path("history")
 
 
 # The default parameter for screen is there only for type hinting.
@@ -202,6 +200,8 @@ async def main(
     if len(players) == 0:
         raise ValueError("No players selected")
 
+    skipped_names = os.getenv("TT_SKIPPED_NAMES", "").split(";")
+
     (
         initial_panel_y,
         initial_panel_width,
@@ -217,7 +217,7 @@ async def main(
         for i in range(len(players))
     ]
     tasks = [
-        redraw_panel(api, False, player, panel)
+        redraw_panel(skipped_names, api, False, player, panel)
         for player, panel in zip(players, panels)
     ]
     await asyncio.gather(*tasks)
@@ -235,7 +235,7 @@ async def main(
             panel.mvwin(panel_y, panel_x)
             panel.resize(panel_height, panel_width)
         for player, panel in zip(players, panels):
-            await redraw_panel(api, False, player, panel)
+            await redraw_panel(skipped_names, api, False, player, panel)
 
     screen.nodelay(True)
     while True:
@@ -321,7 +321,7 @@ async def main(
             players[y]["name"] = names_buffer[y]
             update_name(y)
             panels[y].clear()
-            await redraw_panel(api, True, players[y], panels[y])
+            await redraw_panel(skipped_names, api, True, players[y], panels[y])
             set_yx(y, x)
         elif c == "\x1B":
             return
@@ -377,7 +377,11 @@ def write_header_and_get_panel_y_width_height(
 
 
 async def redraw_panel(
-    api: charybdis.Api, retry: bool, player: Player, panel=curses.initscr()
+    skipped_names: list[str],
+    api: charybdis.Api,
+    retry: bool,
+    player: Player,
+    panel=curses.initscr(),
 ):
     spaces = 2
     max_y, max_x = panel.getmaxyx()
@@ -624,7 +628,4 @@ def parse_date(date: str) -> datetime.datetime:
 
 
 if __name__ == "__main__":
-    skipped_names_str = os.getenv("TT_SKIPPED_NAMES")
-    if skipped_names_str is not None:
-        skipped_names.extend(skipped_names_str.split(";"))
     curses.wrapper(lambda screen: asyncio.run(main_outer(screen)))
