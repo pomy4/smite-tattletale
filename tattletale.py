@@ -13,9 +13,8 @@ import PIL.ImageOps
 import pytesseract
 
 skipped_names = []  # ["Siemka4", "Kapitán"]
-history_folder = Path("node_modules")
-debug_folder = Path("debug")
-assert history_folder.is_dir() and debug_folder.is_dir()
+debug_dir = Path("debug")
+history_dir = Path("history")
 
 
 class GodInfo(typing.TypedDict):
@@ -65,7 +64,7 @@ async def main_outer(screen=curses.initscr()):
         save_to_history = True
     elif len(sys.argv) == 2:
         arg = sys.argv[1]
-        if arg.isdigit():
+        if is_positive_integer(arg) and history_dir.is_dir():
             players = get_players_from_history(int(arg))
         elif img := get_image_from_file(arg):
             pass
@@ -90,21 +89,26 @@ async def main_outer(screen=curses.initscr()):
             await main(api, players, screen)
     except (KeyboardInterrupt, UserExit):
         pass
-    if save_to_history:
-        with open(f"node_modules/{now}.json", "w") as f:
+    if save_to_history and history_dir.is_dir():
+        with open(history_dir / f"{now}.json", "w") as f:
             json.dump(players, f, indent=2, ensure_ascii=False)
 
 
 def take_screenshot() -> PIL.Image.Image:
-    path = "tmp.png"
-    subprocess.run(["./nircmd.exe", "savescreenshot", path], check=True)
-    return get_image_from_file(path)
+    img_path = debug_dir / "lobby.png" if debug_dir.is_dir() else Path("tmp.png")
+    subprocess.run(["./nircmd.exe", "savescreenshot", img_path], check=True)
+    try:
+        img = get_image_from_file(img_path)
+    finally:
+        if not debug_dir.is_dir():
+            img_path.unlink()
+    return img
 
 
 def get_image_from_file(fp: str | Path) -> PIL.Image.Image | None:
     try:
         return PIL.Image.open(fp)
-    except PIL.UnidentifiedImageError:
+    except (FileNotFoundError, PIL.UnidentifiedImageError):
         return None
 
 
@@ -125,13 +129,15 @@ def get_names_from_screenshot(img_screen: PIL.Image.Image) -> list[str]:
     for i, top in enumerate(tops, 1):
         border = b(top, height, left, width)
         img_name = PIL.ImageOps.crop(img_screen, typing.cast(int, border))
-        img_name.save(debug_folder / f"name{i}.png")
+        if debug_dir.is_dir():
+            img_name.save(debug_dir / f"name{i}.png")
         name = pytesseract.image_to_string(img_name)
         names.append(name)
-    with open(debug_folder / "names.json", "w", encoding="utf8") as f:
-        json.dump(names, f)
-    names = [cleanup(name) for name in names]
-    return names
+    clean_names = [cleanup(name) for name in names]
+    if debug_dir.is_dir():
+        with open(debug_dir / "names.txt", "w", encoding="utf8") as f:
+            f.write(f"{names}\n{clean_names}\n")
+    return clean_names
 
 
 def b(top, height, left, width):
@@ -149,15 +155,31 @@ def cleanup(name: str) -> str:
     return name
 
 
+def is_positive_integer(s: str) -> bool:
+    try:
+        return int(s) > 0
+    except ValueError:
+        return False
+
+
 def get_players_from_history(desired_i: int) -> list[Player]:
-    history = sorted(history_folder.iterdir(), reverse=True)
-    fp = next(x for i, x in enumerate(history, 1) if i == desired_i)
+    history = sorted(history_dir.iterdir(), reverse=True)
+    try:
+        fp = next(x for i, x in enumerate(history, 1) if i == desired_i)
+    except StopIteration:
+        raise ValueError(
+            f"Did not find record #{desired_i} in history"
+            f" (its current size is {len(history)})"
+        )
     return get_players_from_file(fp)
 
 
-def get_players_from_file(fp: str | Path) -> list[Player]:
-    with open(fp, encoding="utf8") as f:
-        return json.load(f)
+def get_players_from_file(fp: str | Path) -> list[Player] | None:
+    try:
+        with open(fp, encoding="utf8") as f:
+            return json.load(f)  # TODO: validate.
+    except FileNotFoundError:
+        return None
 
 
 async def main(
@@ -165,7 +187,7 @@ async def main(
     players: list[Player],
     screen=curses.initscr(),
 ):
-    if not players:
+    if len(players) == 0:
         raise ValueError("No players selected")
 
     (
