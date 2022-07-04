@@ -591,7 +591,9 @@ def parse_date(date: str) -> datetime.datetime:
     hour = int(hour)
     minute = int(minute)
     second = int(second)
-    if meridiem == "PM":
+    if meridiem == "AM" and hour == 12:
+        hour = 0
+    if meridiem == "PM" and hour < 12:
         hour += 12
     return datetime.datetime(
         year=year,
