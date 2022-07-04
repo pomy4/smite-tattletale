@@ -58,6 +58,7 @@ class UserExit(Exception):
     pass
 
 
+# The default parameter for screen is there only for type hinting.
 async def main_outer(screen=curses.initscr()):
     img = names = players = None
     save_to_history = False
