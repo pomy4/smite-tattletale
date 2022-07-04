@@ -541,11 +541,7 @@ def get_names_from_screenshot(img_screen: PIL.Image.Image) -> list[str]:
     return names
 
 
-def main_outer(screen=curses.initscr()):
-    asyncio.run(amain_outer(screen))
-
-
-async def amain_outer(screen=curses.initscr()):
+async def main_outer(screen=curses.initscr()):
     img = names = players = None
     save_to_history = False
     if len(sys.argv) == 1:
@@ -586,4 +582,4 @@ async def amain_outer(screen=curses.initscr()):
 
 
 if __name__ == "__main__":
-    curses.wrapper(main_outer)
+    curses.wrapper(lambda screen: asyncio.run(main_outer(screen)))
