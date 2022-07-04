@@ -1,4 +1,4 @@
-*.ipynb
-*.png
-*.json
-*.exe
+/debug/
+/history/
+/test_imgs/
+/nircmd.exe
