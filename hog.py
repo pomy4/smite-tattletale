@@ -1,6 +1,5 @@
 import asyncio
 import curses
-import curses.ascii
 import datetime
 import json
 import subprocess
