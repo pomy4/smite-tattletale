@@ -10,7 +10,7 @@ certifi==2022.6.15
     # via
     #   httpcore
     #   httpx
-charybdis @ git+https://github.com/irukandji4/charybdis@1f1fec893b97a7bb9d292932c5a4237b70aecdfc
+charybdis==1.0.0
     # via -r requirements.in
 h11==0.12.0
     # via httpcore

@@ -1,5 +1,5 @@
 # Tattletale
-A small Python curses script which takes a  screenshot of a Smite lobby and
+Small Python curses script which takes a screenshot of a Smite lobby and
 looks up the MMR,  most played gods and recent matches (in ranked) of your
 teammates using the Smite API.
 
