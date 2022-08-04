@@ -10,7 +10,7 @@ certifi==2022.6.15
     # via
     #   httpcore
     #   httpx
-charybdis==1.0.0
+charybdis==1.0.1
     # via -r requirements.in
 h11==0.12.0
     # via httpcore
