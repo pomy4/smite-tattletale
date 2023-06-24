@@ -429,12 +429,12 @@ def _redraw_panel(max_x: int, spaces: int, info: PlayerInfo | None) -> list[str]
     lines.append(trunc_str(max_x, x, f"Created: {info['created']}"))
     lines.extend(wrap_str(max_x, spaces, x, f"Status: {info['status']}"))
     lines.append(trunc_str(max_x, x, f"Alt name: {info['alt_name']}"))
-    lines.append(trunc_str(max_x, x, f"Ranked conquest"))
+    lines.append(trunc_str(max_x, x, "Ranked conquest"))
     x += spaces
     lines.append(trunc_str(max_x, x, f"MMR: {info['mmr']}"))
     lines.append(trunc_str(max_x, x, f"Matches: {info['matches']}"))
     lines.append(trunc_str(max_x, x, f"Last: {info['last']}"))
-    lines.append(trunc_str(max_x, x, f"Most played gods"))
+    lines.append(trunc_str(max_x, x, "Most played gods"))
     x += spaces
     for god in info["gods"]:
         lines.append(trunc_str(max_x, x, god["name"]))
@@ -444,7 +444,7 @@ def _redraw_panel(max_x: int, spaces: int, info: PlayerInfo | None) -> list[str]
         lines.append(trunc_str(max_x, x, f"Last: {god['last']}"))
         x -= spaces
     x -= spaces
-    lines.append(trunc_str(max_x, x, f"Recent matches"))
+    lines.append(trunc_str(max_x, x, "Recent matches"))
     x += spaces
     for i, match in enumerate(info["recent_matches"], 1):
         lines.append(trunc_str(max_x, x, f"Match #{i}"))
@@ -569,7 +569,7 @@ def make_ago_date(date: str) -> str:
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     seconds_ago = (now - before).total_seconds()
     if seconds_ago < 60:
-        return f"<1 minute ago"
+        return "<1 minute ago"
     minutes_ago = seconds_ago / 60
     if minutes_ago < 60:
         return f"{int(minutes_ago)} minutes ago"
