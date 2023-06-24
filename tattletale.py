@@ -10,7 +10,6 @@ from pathlib import Path
 
 import charybdis
 import PIL.Image
-import PIL.ImageOps
 import pytesseract
 
 
@@ -132,8 +131,7 @@ def get_names_from_screenshot(img_screen: PIL.Image.Image) -> list[str]:
 
     names = []
     for i, top in enumerate(tops, 1):
-        border = b(top, height, left, width)
-        img_name = PIL.ImageOps.crop(img_screen, typing.cast(int, border))
+        img_name = img_screen.crop((left, top, left + width, top + height))
         if debug_dir.is_dir():
             img_name.save(debug_dir / f"name{i}.png")
         name = pytesseract.image_to_string(img_name)
@@ -143,12 +141,6 @@ def get_names_from_screenshot(img_screen: PIL.Image.Image) -> list[str]:
         with open(debug_dir / "names.txt", "w", encoding="utf8") as f:
             f.write(f"{names}\n{clean_names}\n")
     return clean_names
-
-
-def b(top, height, left, width):
-    right = 1920 - left - width
-    bottom = 1080 - top - height
-    return left, top, right, bottom
 
 
 def cleanup(name: str) -> str:
